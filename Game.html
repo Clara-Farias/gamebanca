@@ -198,15 +198,37 @@ const VERTICALS = {
 
 const CRITERIA = [
   {key:'impacto', label:'Impacto da Ideia', max:40, color:'var(--c-impacto)',
-    tiers:['Ideia genérica, já existe no mercado','Boa ideia, alguma diferenciação','Ideia original, transformadora e escalável']},
+    tiers:[
+      {upTo:10, text:'Ideia genérica, já existe no mercado sem diferenciação'},
+      {upTo:20, text:'Melhoria pontual sobre o que já existe'},
+      {upTo:30, text:'Boa ideia, com diferenciação clara'},
+      {upTo:40, text:'Ideia original, transformadora e escalável'}
+    ]},
   {key:'viabilidade', label:'Viabilidade', max:25, color:'var(--c-viabilidade)',
-    tiers:['Sem caminho claro, alto custo','Futuro MVP possível, mas com dependências','Desenvolvimento simples e testável em 30 dias']},
+    tiers:[
+      {upTo:10, text:'Sem caminho claro, alto custo'},
+      {upTo:20, text:'Futuro MVP possível, mas com dependências'},
+      {upTo:25, text:'Desenvolvimento simples e testável em 30 dias'}
+    ]},
   {key:'estrategia', label:'Estratégia de Negócio', max:20, color:'var(--c-estrategia)',
-    tiers:['Desalinhado ou ROI indefinido','Alinhado, ROI estimado','Conectado à estratégia com ROI claro']},
+    tiers:[
+      {upTo:5,  text:'Desalinhado, sem ROI definido'},
+      {upTo:10, text:'Parcialmente alinhado, ROI incerto'},
+      {upTo:15, text:'Alinhado à estratégia, ROI estimado'},
+      {upTo:20, text:'Totalmente conectado à estratégia, com ROI claro'}
+    ]},
   {key:'inovacao', label:'Inovação', max:15, color:'var(--c-inovacao)',
-    tiers:['Sem diferencial inovador','Alguma inovação incremental','Ruptura com modelo atual do setor']},
+    tiers:[
+      {upTo:5,  text:'Sem diferencial inovador'},
+      {upTo:10, text:'Alguma inovação incremental'},
+      {upTo:15, text:'Ruptura com modelo atual do setor'}
+    ]},
   {key:'risco', label:'Risco', max:5, color:'var(--c-risco)',
-    tiers:['Alto risco regulatório ou técnico','Riscos gerenciáveis','Baixo risco, caminho claro']}
+    tiers:[
+      {upTo:2, text:'Alto risco regulatório ou técnico'},
+      {upTo:4, text:'Riscos gerenciáveis'},
+      {upTo:5, text:'Baixo risco, caminho claro'}
+    ]}
 ];
 
 const AWARD_DEFS = [
@@ -228,36 +250,62 @@ const AWARD_DEFS = [
 let state = { tab:'campo', ideas:[], awards:{pitchShowId:null, coletivaVertical:null}, expandedId:null, loaded:false };
 
 /* ============ STORAGE ============ */
+// Este arquivo pode rodar de dois jeitos: (1) dentro do artifact da Claude, onde
+// window.storage existe e salva na nuvem; (2) como .html aberto direto no navegador
+// (duplo clique / arquivo baixado), onde window.storage NÃO existe. Nesse segundo
+// caso, caímos para localStorage do próprio navegador, para os dados não se perderem.
+const LS_IDEAS_KEY = 'radar-banca:ideas';
+const LS_AWARDS_KEY = 'radar-banca:awards-manual';
+const hasCloudStorage = typeof window !== 'undefined' && !!window.storage;
+
 async function loadAll(){
-  try{
-    const r = await window.storage.get('ideas', true);
-    state.ideas = r ? JSON.parse(r.value) : [];
-  }catch(e){ state.ideas = []; }
-  try{
-    const r2 = await window.storage.get('awards-manual', true);
-    state.awards = r2 ? JSON.parse(r2.value) : {pitchShowId:null, coletivaVertical:null};
-  }catch(e){ state.awards = {pitchShowId:null, coletivaVertical:null}; }
+  if(hasCloudStorage){
+    try{
+      const r = await window.storage.get('ideas', true);
+      state.ideas = r ? JSON.parse(r.value) : [];
+    }catch(e){ state.ideas = []; }
+    try{
+      const r2 = await window.storage.get('awards-manual', true);
+      state.awards = r2 ? JSON.parse(r2.value) : {pitchShowId:null, coletivaVertical:null};
+    }catch(e){ state.awards = {pitchShowId:null, coletivaVertical:null}; }
+  } else {
+    try{
+      const raw = localStorage.getItem(LS_IDEAS_KEY);
+      state.ideas = raw ? JSON.parse(raw) : [];
+    }catch(e){ state.ideas = []; }
+    try{
+      const raw2 = localStorage.getItem(LS_AWARDS_KEY);
+      state.awards = raw2 ? JSON.parse(raw2) : {pitchShowId:null, coletivaVertical:null};
+    }catch(e){ state.awards = {pitchShowId:null, coletivaVertical:null}; }
+  }
   state.loaded = true;
   render();
 }
 async function saveIdeas(){
-  try{ await window.storage.set('ideas', JSON.stringify(state.ideas), true); }catch(e){ console.error('storage error', e); }
+  if(hasCloudStorage){
+    try{ await window.storage.set('ideas', JSON.stringify(state.ideas), true); }catch(e){ console.error('storage error', e); }
+  } else {
+    try{ localStorage.setItem(LS_IDEAS_KEY, JSON.stringify(state.ideas)); }catch(e){ console.error('storage error', e); }
+  }
 }
 async function saveAwards(){
-  try{ await window.storage.set('awards-manual', JSON.stringify(state.awards), true); }catch(e){ console.error('storage error', e); }
+  if(hasCloudStorage){
+    try{ await window.storage.set('awards-manual', JSON.stringify(state.awards), true); }catch(e){ console.error('storage error', e); }
+  } else {
+    try{ localStorage.setItem(LS_AWARDS_KEY, JSON.stringify(state.awards)); }catch(e){ console.error('storage error', e); }
+  }
 }
 
 /* ============ HELPERS ============ */
 function uid(){ return 'idea_' + Math.random().toString(36).slice(2,10); }
 function totalOf(idea){ return CRITERIA.reduce((s,c)=>s+(idea.scores[c.key]||0),0); }
+
 function tierText(crit, val){
-  const pct = val / crit.max;
-  if(pct < 0.45) return crit.tiers[0];
-  if(pct < 0.75) return crit.tiers[1];
-  return crit.tiers[2];
+  const tier = crit.tiers.find(t => val <= t.upTo);
+  return (tier || crit.tiers[crit.tiers.length-1]).text;
 }
 function ringSVG(idea){
-  const total = totalOf(idea), pct = total/100;
+  const total = totalOf(idea), pct = total/MAX_TOTAL;
   const r = 24, c = 2*Math.PI*r, off = c*(1-pct);
   return `<div class="ring-wrap">
     <svg width="56" height="56" viewBox="0 0 56 56">
@@ -268,20 +316,27 @@ function ringSVG(idea){
     <div class="ring-total" id="ringt-${idea.id}">${total}</div>
   </div>`;
 }
+const MAX_TOTAL = CRITERIA.reduce((s,c)=>s+c.max, 0); // soma dos máximos de todos os critérios (105)
+
+// Nota de 0 a 10 = média ponderada dos critérios (cada um já pesa proporcionalmente
+// ao seu próprio máximo dentro do total). É só uma leitura mais intuitiva do mesmo
+// total em pontos brutos — não altera a pontuação nem os critérios de premiação.
+function weightedAvg(idea){
+  return (totalOf(idea) / MAX_TOTAL * 10).toFixed(1);
+}
+
+// Prêmio automático só existe para quem "acertou tudo" naquele critério (nota cheia).
+// Não é mais "o maior entre os concorrentes" — é sempre a nota máxima absoluta.
+// Por isso mais de uma ideia pode empatar e vencer junto, e uma mesma ideia pode
+// levar as 4 categorias automáticas (e ainda ser escolhida pela banca nas 2 manuais),
+// totalizando até 6 categorias.
 function autoWinners(metric){
-  const pool = state.ideas.filter(i => Object.values(i.scores).some(v=>v>0));
-  if(pool.length===0) return [];
-  const val = i => metric==='total' ? totalOf(i) : (i.scores[metric]||0);
-  const max = Math.max(...pool.map(val));
-  if(max===0) return [];
-  let winners = pool.filter(i => val(i)===max);
-  if(winners.length>1){
-    // tiebreak: impacto desc, then viabilidade desc
-    winners.sort((a,b)=> (b.scores.impacto - a.scores.impacto) || (b.scores.viabilidade - a.scores.viabilidade));
-    const topImpacto = winners[0].scores.impacto, topViab = winners[0].scores.viabilidade;
-    winners = winners.filter(w => w.scores.impacto===topImpacto && w.scores.viabilidade===topViab);
+  if(metric === 'total'){
+    // Impacto Máximo: só vence quem zerou a régua em TODOS os critérios (total = MAX_TOTAL)
+    return state.ideas.filter(i => totalOf(i) === MAX_TOTAL);
   }
-  return winners;
+  const crit = CRITERIA.find(c=>c.key===metric);
+  return state.ideas.filter(i => (i.scores[metric]||0) === crit.max);
 }
 
 /* ============ RENDER ============ */
@@ -340,7 +395,7 @@ function renderVertical(vid){
     </div>
     <div class="v-actions">
       <button class="btn btn-primary" id="btn-new-idea">+ Nova ideia</button>
-      <div class="mini-rank">${top ? `Líder da vertical: <b>${esc(top.name)}</b> · ${totalOf(top)}/100` : 'Nenhuma ideia pontuada ainda'}</div>
+      <div class="mini-rank">${top ? `Líder da vertical: <b>${esc(top.name)}</b> · ${totalOf(top)}/${MAX_TOTAL} · nota ${weightedAvg(top)}` : 'Nenhuma ideia pontuada ainda'}</div>
     </div>
     <div id="new-idea-slot"></div>
     ${ideas.length ? `<div class="idea-grid">${ideas.map(i=>renderIdeaCard(i)).join('')}</div>`
@@ -398,7 +453,7 @@ function renderGeral(){
       inner = winners.length
         ? winners.map(w=>`<div class="winner-block" style="margin-bottom:6px;">
             <div class="winner-name">${esc(w.name)}</div>
-            <div class="winner-sub">${VERTICALS[w.vertical].name} · ${def.metric==='total'?totalOf(w):w.scores[def.metric]}${def.metric==='total'?'/100':'/'+CRITERIA.find(c=>c.key===def.metric).max}</div>
+            <div class="winner-sub">${VERTICALS[w.vertical].name} · ${def.metric==='total'?totalOf(w):w.scores[def.metric]}${def.metric==='total'?'/'+MAX_TOTAL:'/'+CRITERIA.find(c=>c.key===def.metric).max}</div>
           </div>`).join('')
         : `<div class="no-winner">Ainda sem pontuações suficientes.</div>`;
     } else if(def.type==='manual-idea'){
@@ -433,25 +488,26 @@ function renderGeral(){
       <td>${i.scores.estrategia}</td>
       <td>${i.scores.inovacao}</td>
       <td>${i.scores.risco}</td>
-      <td style="font-weight:700;color:var(--lime-soft)">${totalOf(i)}</td>
+      <td style="font-weight:700;color:var(--lime-soft)">${totalOf(i)}/${MAX_TOTAL}</td>
+      <td style="font-weight:700;color:var(--lime-soft)">${weightedAvg(i)}</td>
     </tr>`).join('');
 
   return `
     <div class="panel-section">
       <h3>Premiação</h3>
-      <p class="sub">Quatro categorias calculadas automaticamente pela Matriz de Análise, duas de escolha livre da banca.</p>
+      <p class="sub">Quatro categorias calculadas automaticamente pela Matriz de Análise (só há vencedor quando a ideia atinge a nota máxima naquele critério — empates ganham juntos), duas de escolha livre da banca.</p>
       <div class="award-grid">${awardCards}</div>
     </div>
     <div class="panel-section">
       <h3>Ranking geral</h3>
-      <p class="sub">Todas as ideias pontuadas, das três verticais, ordenadas por pontuação total (máx. 100).</p>
+      <p class="sub">Todas as ideias pontuadas, das três verticais, ordenadas por pontuação total (máx. ${MAX_TOTAL}).</p>
       ${ranked.length ? `<div style="overflow-x:auto;"><table class="rank-table">
-        <thead><tr><th>#</th><th>Ideia</th><th>Vertical</th><th>Impacto</th><th>Viabilidade</th><th>Estratégia</th><th>Inovação</th><th>Risco</th><th>Total</th></tr></thead>
+        <thead><tr><th>#</th><th>Ideia</th><th>Vertical</th><th>Impacto</th><th>Viabilidade</th><th>Estratégia</th><th>Inovação</th><th>Risco</th><th>Total</th><th>Nota</th></tr></thead>
         <tbody>${rankRows}</tbody>
       </table></div>` : `<div class="empty-state">Nenhuma ideia pontuada ainda em nenhuma vertical.</div>`}
     </div>
     <div class="footer-actions">
-      <span class="status-note">Dados salvos e visíveis para todos os analistas com acesso a este painel.</span>
+      <span class="status-note">${hasCloudStorage ? 'Dados salvos e visíveis para todos os analistas com acesso a este painel.' : 'Dados salvos neste navegador (armazenamento local). Não são compartilhados com outros computadores.'}</span>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-ghost" id="btn-refresh">Atualizar dados</button>
         <button class="btn btn-danger" id="btn-reset">Zerar avaliações</button>
@@ -543,7 +599,7 @@ function attachHandlers(){
       if(ringt) ringt.textContent = total;
       if(ringc){
         const r=24, c=2*Math.PI*r;
-        ringc.setAttribute('stroke-dashoffset', c*(1-total/100));
+        ringc.setAttribute('stroke-dashoffset', c*(1-total/MAX_TOTAL));
       }
     };
     slider.onchange = async ()=>{ await saveIdeas(); };
