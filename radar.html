@@ -123,6 +123,7 @@
 #radar-app td { padding: 9px 8px; border-bottom: 1px solid #1e2635; vertical-align: middle; }
 #radar-app tr:last-child td { border-bottom: none; }
 #radar-app .muted { color: var(--muted); }
+#radar-app .score-num { color: #ffffff; }
 #radar-app .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
 #radar-app .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
 #radar-app .empty .big { font-size: 30px; margin-bottom: 8px; }
@@ -693,8 +694,8 @@ function renderRanking() {
               + '<td class="rank-pos ' + (idx === 0 ? 'top1' : '') + '">' + (idx + 1) + '</td>'
               + '<td><b>' + escapeHtml(r.name) + '</b></td>'
               + '<td class="muted">' + escapeHtml(r.vertical || '—') + '</td>'
-              + CRITERIA.map(function(c){ return '<td>' + fmt(r.avg[c.key]) + '</td>'; }).join('')
-              + '<td><b>' + fmt(r.total) + '</b></td>'
+              + CRITERIA.map(function(c){ return '<td class="score-num">' + fmt(r.avg[c.key]) + '</td>'; }).join('')
+              + '<td class="score-num"><b>' + fmt(r.total) + '</b></td>'
               + '<td class="muted">' + r.banca + '/' + ANALYSTS.length + '</td>'
               + '<td>' + radarSvg(r.avg) + '</td>'
               + '</tr>';
