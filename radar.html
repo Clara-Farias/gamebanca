@@ -243,8 +243,9 @@ async function sb(path, options, attempt) {
       const t = await res.text().catch(function(){ return ''; });
       throw new Error('HTTP ' + res.status + ' ' + t);
     }
-    if (res.status === 204) return { ok: true, data: null };
-    const data = await res.json();
+    const text = await res.text();
+    if (!text) return { ok: true, data: null };
+    const data = JSON.parse(text);
     return { ok: true, data: data };
   } catch (e) {
     console.error('supabase request failed', path, e);
