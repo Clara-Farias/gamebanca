@@ -122,7 +122,10 @@
 #radar-app th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 8px; border-bottom: 1px solid var(--line); }
 #radar-app td { padding: 9px 8px; border-bottom: 1px solid #1e2635; vertical-align: middle; }
 #radar-app tr:last-child td { border-bottom: none; }
-#radar-app .muted { color: var(--muted); }
+#radar-app .muted { color: var(--muted) !important; text-decoration: none !important; }
+#radar-app a { color: inherit !important; text-decoration: none !important; }
+#radar-app td, #radar-app th, #radar-app span, #radar-app div { text-decoration: none; }
+#radar-app table td, #radar-app table th { color: inherit; }
 #radar-app .score-num { color: #ffffff; }
 #radar-app .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
 #radar-app .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
