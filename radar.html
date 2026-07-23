@@ -193,6 +193,12 @@
   100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 #radar-app .ceremony-nav { display: flex; justify-content: center; gap: 10px; margin-top: 30px; }
+#radar-app .ceremony-edit-btn { margin-top: 12px; font-size: 12.5px; padding: 7px 14px; }
+#radar-app .ceremony-edit-box { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 16px; max-width: 380px; margin: 0 auto; text-align: left; }
+#radar-app .ceremony-edit-box label { margin-bottom: 6px; }
+#radar-app .ceremony-edit-actions { display: flex; gap: 8px; margin-top: 12px; }
+#radar-app .ceremony-edit-actions .btn { flex: 1; }
+#radar-app .ceremony-override-tag { display: inline-block; margin-top: 8px; font-size: 11px; color: var(--accent); font-weight: 700; background: var(--accent-soft); padding: 2px 9px; border-radius: 999px; }
 #radar-app:fullscreen { display: flex; align-items: center; }
 #radar-app:fullscreen .hero { display: none; }
 #radar-app:fullscreen .wrap { width: 100%; }
@@ -258,6 +264,8 @@ let lastLoadError = false;
 let newIdeaDraft = { name: '', vertical: '', day: 1 };
 let ceremonyIndex = 0;
 let ceremonyRevealed = {};
+let ceremonyEditingIndex = -1;
+let manualOverrides = {};
 
 const $screen = document.getElementById('screen');
 const $tabs = document.getElementById('tabs');
@@ -296,6 +304,21 @@ async function sb(path, options, attempt) {
   }
 }
 
+async function saveAwardValue(key, value) {
+  const patchRes = await sb('manual_awards?key=eq.' + encodeURIComponent(key), {
+    method: 'PATCH',
+    headers: { 'Prefer': 'return=representation' },
+    body: JSON.stringify({ value: value }),
+  });
+  if (patchRes.ok && Array.isArray(patchRes.data) && patchRes.data.length > 0) return true;
+  const postRes = await sb('manual_awards', {
+    method: 'POST',
+    headers: { 'Prefer': 'return=representation' },
+    body: JSON.stringify({ key: key, value: value }),
+  });
+  return !!postRes.ok;
+}
+
 function setDbBadge(online) {
   $dbBadge.className = 'db-badge' + (online ? '' : ' offline');
   $dbBadgeText.textContent = online ? 'conectado ao banco de dados' : 'sem conexão com o banco — tentando de novo';
@@ -325,11 +348,15 @@ async function loadAll() {
     });
     scores = s;
     const ma = { pitchShow: '', inteligenciaColetiva: '' };
+    const mo = {};
+    AUTO_AWARDS.forEach(function(a) { mo[a.key] = ''; });
     awardsRes.data.forEach(function(r) {
       if (r.key === 'pitch_show') ma.pitchShow = r.value || '';
-      if (r.key === 'inteligencia_coletiva') ma.inteligenciaColetiva = r.value || '';
+      else if (r.key === 'inteligencia_coletiva') ma.inteligenciaColetiva = r.value || '';
+      else if (r.key.indexOf('override_') === 0) mo[r.key.slice(9)] = r.value || '';
     });
     manualAwards = ma;
+    manualOverrides = mo;
     lastLoadError = false;
   } else {
     lastLoadError = true;
@@ -373,31 +400,48 @@ function computeAutoAward(criterionKey, ranked) {
 function ceremonyAwardsList() {
   const ranked = computeRanking();
   const auto = AUTO_AWARDS.map(function(award) {
-    const winner = computeAutoAward(award.key, ranked);
+    const autoWinner = computeAutoAward(award.key, ranked);
     const crit = CRITERIA.filter(function(c){ return c.key === award.key; })[0];
+    const overrideName = manualOverrides[award.key];
+    let winner = autoWinner;
+    let overridden = false;
+    if (overrideName && overrideName.trim()) {
+      const found = ranked.filter(function(r){ return r.name === overrideName; })[0]
+        || ideas.filter(function(i){ return i.name === overrideName; })[0];
+      if (found) { winner = found; overridden = true; }
+    }
     return {
+      type: 'auto',
+      key: award.key,
       title: award.title,
       desc: award.desc,
       prize: PRIZE,
       ready: !!winner,
+      overridden: overridden,
       winnerName: winner ? winner.name : '',
-      winnerSub: winner ? ((winner.vertical || '—') + ' · ' + crit.label + ': ' + fmt(winner.avg[award.key]) + '/' + crit.max) : '',
+      winnerSub: winner ? ((winner.vertical || '—') + (winner.avg ? (' · ' + crit.label + ': ' + fmt(winner.avg[award.key]) + '/' + crit.max) : '')) : '',
     };
   });
   const manual = [
     {
+      type: 'pitch',
+      key: 'pitchShow',
       title: 'Pitch Show',
       desc: 'Para o pitch mais envolvente, claro e convincente — escolha da banca.',
       prize: PRIZE,
       ready: !!(manualAwards.pitchShow && manualAwards.pitchShow.trim()),
+      overridden: false,
       winnerName: manualAwards.pitchShow || '',
       winnerSub: 'Escolha da banca',
     },
     {
+      type: 'collective',
+      key: 'inteligenciaColetiva',
       title: 'Inteligência Coletiva',
       desc: 'Para a equipe com melhor integração e construção colaborativa — escolha da banca.',
       prize: PRIZE,
       ready: !!(manualAwards.inteligenciaColetiva && manualAwards.inteligenciaColetiva.trim()),
+      overridden: false,
       winnerName: manualAwards.inteligenciaColetiva || '',
       winnerSub: 'Escolha da banca',
     },
@@ -843,12 +887,36 @@ function renderRanking() {
   wireErrorBanner();
 }
 
+function ceremonyEditFormHtml(current) {
+  const isText = current.type === 'collective';
+  const currentValue = current.type === 'auto' ? (manualOverrides[current.key] || '')
+    : current.type === 'pitch' ? (manualAwards.pitchShow || '')
+    : (manualAwards.inteligenciaColetiva || '');
+  return ''
+    + '<div class="ceremony-edit-box">'
+    +   '<label>' + (current.type === 'auto' ? 'Selecionar vencedor manual' : current.type === 'pitch' ? 'Ideia vencedora' : 'Vertical / equipe vencedora') + '</label>'
+    +   (isText
+        ? '<input type="text" id="ceremony-edit-input" value="' + escapeHtml(currentValue) + '" placeholder="Ex: Serviço de Campo" />'
+        : '<select id="ceremony-edit-select">'
+          +   '<option value="">' + (current.type === 'auto' ? '— Automático (recalcular) —' : '— selecionar —') + '</option>'
+          +   ideas.filter(function(i){ return i.name && i.name.trim(); }).map(function(i) {
+                return '<option value="' + escapeHtml(i.name) + '" ' + (currentValue === i.name ? 'selected' : '') + '>' + escapeHtml(i.name) + '</option>';
+              }).join('')
+          + '</select>')
+    +   '<div class="ceremony-edit-actions">'
+    +     '<button class="btn" id="ceremony-edit-save">Salvar</button>'
+    +     '<button class="btn ghost" id="ceremony-edit-cancel">Cancelar</button>'
+    +   '</div>'
+    + '</div>';
+}
+
 function renderCeremony() {
   const awards = ceremonyAwardsList();
   if (ceremonyIndex < 0) ceremonyIndex = 0;
   if (ceremonyIndex > awards.length - 1) ceremonyIndex = awards.length - 1;
   const current = awards[ceremonyIndex];
   const revealed = !!ceremonyRevealed[ceremonyIndex];
+  const editing = ceremonyEditingIndex === ceremonyIndex;
 
   $screen.innerHTML = ''
     + '<div class="panel ceremony-stage">'
@@ -860,13 +928,17 @@ function renderCeremony() {
     +   '<div class="ceremony-title">' + escapeHtml(current.title) + '</div>'
     +   '<div class="ceremony-prize">' + current.prize + '</div>'
     +   '<div class="ceremony-desc">' + escapeHtml(current.desc) + '</div>'
-    +   (revealed
-        ? '<div class="ceremony-winner-box reveal-in">'
-          + '<div class="ceremony-winner-label">Vencedor</div>'
-          + '<div class="ceremony-winner-name">' + (current.winnerName ? escapeHtml(current.winnerName) : '— ainda sem indicação —') + '</div>'
-          + (current.winnerSub ? '<div class="ceremony-winner-sub">' + escapeHtml(current.winnerSub) + '</div>' : '')
-          + '</div>'
-        : '<button class="btn ceremony-reveal-btn" id="ceremony-reveal" ' + (current.ready ? '' : 'title="Ainda sem dados suficientes, mas pode revelar mesmo assim"') + '>🔮 Revelar vencedor</button>')
+    +   (editing
+        ? ceremonyEditFormHtml(current)
+        : (revealed
+          ? '<div class="ceremony-winner-box reveal-in">'
+            + '<div class="ceremony-winner-label">Vencedor</div>'
+            + '<div class="ceremony-winner-name">' + (current.winnerName ? escapeHtml(current.winnerName) : '— ainda sem indicação —') + '</div>'
+            + (current.winnerSub ? '<div class="ceremony-winner-sub">' + escapeHtml(current.winnerSub) + '</div>' : '')
+            + (current.overridden ? '<div class="ceremony-override-tag">✏️ ajustado manualmente</div>' : '')
+            + '</div>'
+          : '<button class="btn ceremony-reveal-btn" id="ceremony-reveal" ' + (current.ready ? '' : 'title="Ainda sem dados suficientes, mas pode revelar mesmo assim"') + '>🔮 Revelar vencedor</button>')
+          + '<div><button class="btn ghost ceremony-edit-btn" id="ceremony-edit-open">✏️ Ajustar vencedor</button></div>')
     +   '<div class="ceremony-nav">'
     +     '<button class="btn ghost" id="ceremony-prev" ' + (ceremonyIndex === 0 ? 'disabled' : '') + '>← Anterior</button>'
     +     '<button class="btn ghost" id="ceremony-fullscreen">⛶ Tela cheia</button>'
@@ -879,12 +951,41 @@ function renderCeremony() {
     ceremonyRevealed[ceremonyIndex] = true;
     render();
   });
-  document.getElementById('ceremony-prev').addEventListener('click', function() { ceremonyIndex--; render(); });
-  document.getElementById('ceremony-next').addEventListener('click', function() { ceremonyIndex++; render(); });
+  document.getElementById('ceremony-prev').addEventListener('click', function() { ceremonyEditingIndex = -1; ceremonyIndex--; render(); });
+  document.getElementById('ceremony-next').addEventListener('click', function() { ceremonyEditingIndex = -1; ceremonyIndex++; render(); });
   document.getElementById('ceremony-fullscreen').addEventListener('click', function() {
     const el = document.getElementById('radar-app');
     if (document.fullscreenElement) document.exitFullscreen();
     else if (el.requestFullscreen) el.requestFullscreen();
+  });
+
+  const editOpenBtn = document.getElementById('ceremony-edit-open');
+  if (editOpenBtn) editOpenBtn.addEventListener('click', function() {
+    ceremonyEditingIndex = ceremonyIndex;
+    render();
+  });
+  const editCancelBtn = document.getElementById('ceremony-edit-cancel');
+  if (editCancelBtn) editCancelBtn.addEventListener('click', function() {
+    ceremonyEditingIndex = -1;
+    render();
+  });
+  const editSaveBtn = document.getElementById('ceremony-edit-save');
+  if (editSaveBtn) editSaveBtn.addEventListener('click', async function() {
+    const sel = document.getElementById('ceremony-edit-select');
+    const inp = document.getElementById('ceremony-edit-input');
+    const value = inp ? inp.value.trim() : (sel ? sel.value : '');
+    editSaveBtn.disabled = true;
+    editSaveBtn.textContent = 'Salvando…';
+    let dbKey;
+    if (current.type === 'auto') { dbKey = 'override_' + current.key; manualOverrides[current.key] = value; }
+    else if (current.type === 'pitch') { dbKey = 'pitch_show'; manualAwards.pitchShow = value; }
+    else { dbKey = 'inteligencia_coletiva'; manualAwards.inteligenciaColetiva = value; }
+    const ok = await saveAwardValue(dbKey, value);
+    if (!ok) {
+      alert('Não foi possível salvar — verifique sua internet.');
+    }
+    ceremonyEditingIndex = -1;
+    render();
   });
 }
 
